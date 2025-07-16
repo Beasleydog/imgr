@@ -2,66 +2,100 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Random Local Image</title>
+<title>Random Local Media</title>
 <style>
-  body{display:flex;flex-direction:column;align-items:center;font:16px sans-serif;margin:2em}
-  img{max-width:90vw;max-height:80vh;object-fit:contain;border:2px solid #ccc;border-radius:8px}
-  #pickBtn{padding:.6em 1.2em;font-size:1rem;border:0;border-radius:6px;background:#007bff;color:#fff;cursor:pointer}
+  *{box-sizing:border-box}
+  body{margin:0;font:16px/1.4 system-ui, sans-serif;display:flex;flex-direction:column;align-items:center;gap:1em;padding:1em}
+  #controls{display:flex;gap:1em;align-items:center}
+  label{display:flex;align-items:center;gap:.3em;font-size:.9rem}
+  #viewer{flex:1;display:flex;justify-content:center;align-items:center;width:100%}
+  #viewer img,#viewer video{height:100vh;width:auto;object-fit:contain;border-radius:8px;border:2px solid #ccc}
+  #pickBtn{padding:.5em 1em;border:0;border-radius:6px;background:#007bff;color:#fff;cursor:pointer;font-size:1rem}
 </style>
 </head>
 <body>
 
-<button id="pickBtn" hidden>Choose image folder…</button>
-<img id="viewer" alt="">
+<div id="controls">
+  <button id="pickBtn" hidden>Choose folder…</button>
+  <label><input type="checkbox" id="chkPhotos" checked>Photos</label>
+  <label><input type="checkbox" id="chkVideos" checked>Videos</label>
+</div>
+
+<div id="viewer"></div>
 
 <script type="module">
   import {get, set} from 'https://cdn.jsdelivr.net/npm/idb-keyval@6/+esm';
+  const KEY='dirHandle';
 
-  const KEY = 'dirHandle';
+  const IMAGE_EXT=/\.(png|jpe?g|gif|webp|avif|bmp)$/i;
+  const VIDEO_EXT=/\.(mp4|webm|mov|mkv|m4v|avi)$/i;
 
-  async function chooseDir() {
-    const handle = await window.showDirectoryPicker({mode:'read'});
-    await set(KEY, handle);
+  const pickBtn=document.getElementById('pickBtn');
+  const chkPhotos=document.getElementById('chkPhotos');
+  const chkVideos=document.getElementById('chkVideos');
+  const viewer=document.getElementById('viewer');
+
+  async function chooseDir(){
+    const handle=await window.showDirectoryPicker({mode:'read'});
+    await set(KEY,handle);
     return handle;
   }
 
-  async function verifyPermission(handle) {
-    if (await handle.queryPermission({mode:'read'}) === 'granted') return true;
-    return (await handle.requestPermission({mode:'read'})) === 'granted';
+  async function verifyPerm(handle){
+    if(await handle.queryPermission({mode:'read'})==='granted') return true;
+    return (await handle.requestPermission({mode:'read'}))==='granted';
   }
 
-  async function listImageHandles(dirHandle) {
-    const allowed = /\.(png|jpe?g|gif|webp|avif|bmp)$/i;
-    const images = [];
-    for await (const [name, handle] of dirHandle.entries()) {
-      if (handle.kind === 'file' && allowed.test(name)) images.push(handle);
+  async function listHandles(dirHandle){
+    const handles=[];
+    for await (const [name, handle] of dirHandle.entries()){
+      if(handle.kind!=='file') continue;
+      if( (chkPhotos.checked && IMAGE_EXT.test(name)) ||
+          (chkVideos.checked && VIDEO_EXT.test(name)) ){
+        handles.push(handle);
+      }
     }
-    return images;
+    return handles;
   }
 
-  async function showRandomImage(dirHandle) {
-    const images = await listImageHandles(dirHandle);
-    if (!images.length) return alert('No images found in folder!');
-    const random = images[Math.floor(Math.random()*images.length)];
-    const file   = await random.getFile();
-    document.getElementById('viewer').src = URL.createObjectURL(file);
-  }
+  function clearViewer(){ viewer.innerHTML=''; }
 
-  async function init() {
-    let dirHandle = await get(KEY);
-
-    if (!dirHandle || !(await verifyPermission(dirHandle))) {
-      // first visit or permission revoked
-      const pickBtn = document.getElementById('pickBtn');
-      pickBtn.hidden = false;
-      pickBtn.addEventListener('click', async () => {
-        dirHandle = await chooseDir();
-        if (await verifyPermission(dirHandle)) showRandomImage(dirHandle);
-      });
+  async function showRandomMedia(dirHandle){
+    const handles=await listHandles(dirHandle);
+    if(!handles.length){
+      alert('No matching media in folder!');
+      clearViewer();
       return;
     }
-    // have stored handle + permission
-    showRandomImage(dirHandle);
+    const h=handles[Math.floor(Math.random()*handles.length)];
+    const file=await h.getFile();
+    const url=URL.createObjectURL(file);
+    clearViewer();
+    if(IMAGE_EXT.test(file.name)){
+      const img=document.createElement('img');
+      img.src=url;
+      viewer.appendChild(img);
+    }else{
+      const vid=document.createElement('video');
+      vid.src=url; vid.autoplay=true; vid.loop=true; vid.muted=true; vid.controls=true;
+      viewer.appendChild(vid);
+    }
+  }
+
+  async function init(){
+    let dirHandle=await get(KEY);
+    if(!dirHandle || !(await verifyPerm(dirHandle))){
+      pickBtn.hidden=false;
+      pickBtn.onclick=async()=>{
+        dirHandle=await chooseDir();
+        if(await verifyPerm(dirHandle)) await showRandomMedia(dirHandle);
+      };
+    }else{
+      await showRandomMedia(dirHandle);
+    }
+
+    // re‑filter on toggle
+    [chkPhotos,chkVideos].forEach(cb=>cb.addEventListener('change',()=>dirHandle&&showRandomMedia(dirHandle)));
   }
 
   init();
