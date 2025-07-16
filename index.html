@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Random Local Image</title>
+<style>
+  body{display:flex;flex-direction:column;align-items:center;font:16px sans-serif;margin:2em}
+  img{max-width:90vw;max-height:80vh;object-fit:contain;border:2px solid #ccc;border-radius:8px}
+  #pickBtn{padding:.6em 1.2em;font-size:1rem;border:0;border-radius:6px;background:#007bff;color:#fff;cursor:pointer}
+</style>
+</head>
+<body>
+
+<button id="pickBtn" hidden>Choose image folder…</button>
+<img id="viewer" alt="">
+
+<script type="module">
+  import {get, set} from 'https://cdn.jsdelivr.net/npm/idb-keyval@6/+esm';
+
+  const KEY = 'dirHandle';
+
+  async function chooseDir() {
+    const handle = await window.showDirectoryPicker({mode:'read'});
+    await set(KEY, handle);
+    return handle;
+  }
+
+  async function verifyPermission(handle) {
+    if (await handle.queryPermission({mode:'read'}) === 'granted') return true;
+    return (await handle.requestPermission({mode:'read'})) === 'granted';
+  }
+
+  async function listImageHandles(dirHandle) {
+    const allowed = /\.(png|jpe?g|gif|webp|avif|bmp)$/i;
+    const images = [];
+    for await (const [name, handle] of dirHandle.entries()) {
+      if (handle.kind === 'file' && allowed.test(name)) images.push(handle);
+    }
+    return images;
+  }
+
+  async function showRandomImage(dirHandle) {
+    const images = await listImageHandles(dirHandle);
+    if (!images.length) return alert('No images found in folder!');
+    const random = images[Math.floor(Math.random()*images.length)];
+    const file   = await random.getFile();
+    document.getElementById('viewer').src = URL.createObjectURL(file);
+  }
+
+  async function init() {
+    let dirHandle = await get(KEY);
+
+    if (!dirHandle || !(await verifyPermission(dirHandle))) {
+      // first visit or permission revoked
+      const pickBtn = document.getElementById('pickBtn');
+      pickBtn.hidden = false;
+      pickBtn.addEventListener('click', async () => {
+        dirHandle = await chooseDir();
+        if (await verifyPermission(dirHandle)) showRandomImage(dirHandle);
+      });
+      return;
+    }
+    // have stored handle + permission
+    showRandomImage(dirHandle);
+  }
+
+  init();
+</script>
+</body>
+</html>
